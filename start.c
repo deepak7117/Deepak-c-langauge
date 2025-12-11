@@ -14,6 +14,11 @@ int modulo();
 int gcd();
 int lcm();
 int lcd();
+int sqaureroot();
+int cuberoot();
+int quadratic();
+int square();
+int trignometry();
 
 int main(){
     char username[20],password[20];
@@ -26,7 +31,7 @@ int main(){
 
     if(strcmp(username,"Deepak")==0 && strcmp(password,"Deepak@7117")==0){
     int choice;
-    printf("Menu:\n1. Area of Square\n2. Area of Rectangle\n3. Area of Circle\n4. Area of Triangle\n5. Arithematics Operations\n6. Swap Two Numbers\n7. Factorial of a Number\n8. Fibonacci Series\n9. check even odd\n10. remider after division\n11. Greatest common divisor\n12. Lowest Common Multiple\n13. Lowest Caommon Divisor\nEnter your choice:");
+    printf("Menu:\n1. Area of Square\n2. Area of Rectangle\n3. Area of Circle\n4. Area of Triangle\n5. Arithematics Operations\n6. Swap Two Numbers\n7. Factorial of a Number\n8. Fibonacci Series\n9. check even odd\n10. remider after division\n11. Greatest common divisor\n12. Lowest Common Multiple\n13. Lowest Caommon Divisor\n14. Square Root Of Number\n15. Cube Root Of Number\n16. Roots Of Quadratic Equation\n17. Square Of Number\n18. Trignometry Function\nEnter your choice:");
     scanf("%d",&choice);
     switch(choice){
         case 1:
@@ -67,6 +72,21 @@ int main(){
         	break;
         case 13:
         	lcd();
+        	break;
+        case 14:
+        	sqaureroot();
+        	break;
+        case 15:
+        	cuberoot();
+        	break;
+        case 16:
+        	quadratic();
+            break;
+        case 17:
+        	square();
+        	break;
+        case 18:
+        	trignometry();
         	break;
         default:
             printf("Invalid choice");
@@ -226,11 +246,115 @@ int lcd(){
     printf("LCD of %d and %d is %d",a,b,lcd);
     return 0;
 }
-
-
-
-
-
+int sqaureroot(){
+    double number, squareRoot;
+    printf("Enter a number: ");
+    scanf("%lf", &number);
+    if (number < 0) {
+        printf("Error: finding square root of a negative number is not possible.\n");
+        return 1;
+    }
+    squareRoot = sqrt(number);
+    printf("Square root of %.2lf is %.2lf\n", number, squareRoot);
+    return 0;
+}
+int cuberoot(){
+    double number, cubeRoot;
+    printf("Enter a number: ");
+    scanf("%lf", &number);
+    cubeRoot = cbrt(number);
+    printf("Cube root of %.2lf is %.2lf\n", number, cubeRoot);
+    return 0;
+}
+int quadratic(){
+    double a, b, c, discriminant, root1, root2, realPart, imagPart;
+    printf("Compare Your Equation to standard form ax^2 + bx + c = 0\n");
+    printf("Enter coefficients a, b and c: ");
+    scanf("%lf %lf %lf", &a, &b, &c);
+    discriminant = b*b - 4*a*c;
+    if (discriminant > 0) {
+        root1 = (-b + sqrt(discriminant)) / (2*a);
+        root2 = (-b - sqrt(discriminant)) / (2*a);
+        printf("Roots are real and different.\n");
+        printf("Root 1 = %.2lf\n", root1);
+        printf("Root 2 = %.2lf\n", root2);
+    }
+    else if (discriminant == 0) {
+        root1 = root2 = -b / (2*a);
+        printf("Roots are real and the same.\n");
+        printf("Root 1 = Root 2 = %.2lf\n", root1);
+    }
+    else {
+        realPart = -b / (2*a);
+        imagPart = sqrt(-discriminant) / (2*a);
+        printf("Roots are complex and different.\n");
+        printf("Root 1 = %.2lf + %.2lfi\n", realPart, imagPart);
+        printf("Root 2 = %.2lf - %.2lfi\n", realPart, imagPart);
+    }
+    return 0;
+}
+int square(){
+    int number, result;
+    printf("Enter a number: ");
+    scanf("%d", &number);
+    result = number * number;
+    printf("Square of %d is %d\n", number, result);
+    return 0;
+}
+int trignometry(){
+    int choice;
+    int selection;
+    printf("Select Type of Trigonometric Function:\n1.Normal Functions\n2.Inverse Functions\nEnter Your Choice:");
+    scanf("%d",&choice);
+    switch(choice){
+        case 1:
+        	printf("\n");
+    double x;
+     printf("Enter angle in radians: ");
+    scanf("%lf", &x);
+    printf("Select Trigonometric Function:\n1.Sine\n2.Cosine\n3.Tangent\nEnter Your Choice:");
+    scanf("%d",&selection);
+    switch (selection)
+    {
+    case 1:
+    printf("Sine of %.2f is %.2f\n", x, sin(x));
+        break;
+    case 2:
+    printf("Cosine of %.2f is %.2f\n", x, cos(x));
+        break;
+    case 3:
+    printf("Tangent of %.2f is %.2f\n", x, tan(x));
+        break;  
+    default:
+        break;
+        
+    }
+     break;
+     case 2:
+     	printf("\n");
+    double y;
+     printf("Enter enter a Value: ");
+    scanf("%lf", &y);
+    printf("Select Inverse Trigonometric Function:\n1.Arcsine\n2.Arccosine\n3.Arctangent\nEnter Your Choice:");
+    scanf("%d",&selection);
+    switch (selection){
+        case 1:
+    printf("Arcsine of %.2f is %.2f\n", y, asin(y));
+        break;
+    case 2:;
+    printf("Arccosine of %.2f is %.2f\n", y, acos(y));
+        break;
+    case 3:
+    printf("Arctangent of %.2f is %.2f\n", y, atan(y));
+        break;  
+    }
+            break;
+        default:
+            printf("Invalid choice");
+            break;
+    }
+    return 0;
+}
 
 
 

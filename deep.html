@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Hand-Controlled Three.js Particle System Template</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000011; }
+        canvas { display: block; }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-family: Arial, sans-serif;
+            z-index: 10;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 5px;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+    <div id="info">
+        **Simulated Hand Control:**<br>
+        Gesture: <span id="gesture-display">Idle (Blue)</span><br>
+        Press '1' for **Attract** (Fist)<br>
+        Press '2' for **Explode** (Open)<br>
+        Press '3' for **Morph** (Template)<br>
+    </div>
+
+    <script>
+        // --- 1. Global Variables ---
+        let scene, camera, renderer, particles;
+        const PARTICLE_COUNT = 50000; // Increased for better visual density
+        
+        let handTrackingData = {
+            isHandPresent: false,
+            normalizedX: 0.5, // 0.0 to 1.0 (left to right)
+            normalizedY: 0.5, // 0.0 to 1.0 (bottom to top)
+            gestureType: 'idle' 
+        };
+
+        const gestureDisplay = document.getElementById('gesture-display');
+        
+        // --- 2. GLSL Shaders ---
+
+        // The Vertex Shader: Calculates position, size, and shape morphing
+        function getVertexShader() {
+            return `
+                attribute float pSize;
+                attribute float pTemplate; // Template index (0, 1, 2, 3...)
+                attribute float pIndex;    // Unique ID for noise/time calculations
+
+                uniform float uTime;
+                uniform vec2 uHandPos;
+                uniform float uGestureState; // 0=idle, 1=attract, 2=repel, 3=template_switch
+                
+                // Helper function for 3D rotation (optional but adds depth)
+                mat3 rotateX(float angle) {
+                    return mat3(
+                        1.0, 0.0, 0.0,
+                        0.0, cos(angle), -sin(angle),
+                        0.0, sin(angle), cos(angle)
+                    );
+                }
+
+                // --- SHAPE TEMPLATES ---
+                // Creates a Heart shape (Cardioid-like)
+                vec3 heartShape(float t, float s) {
+                    float a = t * 6.28318;
+                    float r = s * (13.0 * cos(a) - 5.0 * cos(2.0*a) - 2.0 * cos(3.0*a) - cos(4.0*a));
+                    float x = r * sin(a);
+                    float y = r * cos(a);
+                    float z = 0.0;
+                    return vec3(x, y, z) * 0.1;
+                }
+                
+                // Creates a Saturn-like ring (simplified)
+                vec3 saturnShape(float t, float s) {
+                    float radius = s * (3.0 + cos(t * 10.0));
+                    float ringOffset = sin(pIndex) * 0.5;
+                    float x = radius * cos(t * 6.28318) + ringOffset;
+                    float y = sin(pIndex * 5.0) * 0.2; // Small vertical spread
+                    float z = radius * sin(t * 6.28318);
+                    return vec3(x, y, z);
+                }
+                
+                // Creates a simple expanding sphere (default idle state)
+                vec3 sphereShape(float t, float s) {
+                    return normalize(position) * (2.0 + sin(uTime + pIndex * 0.1) * 0.5) * s;
+                }
+
+                void main() {
+                    vec3 newPosition = position;
+                    float speed = 0.05;
+                    
+                    // Map uHandPos (0-1 range) to World Coordinates (-5 to 5)
+                    vec3 handWorldPos = vec3(uHandPos.x * 10.0 - 5.0, uHandPos.y * 10.0 - 5.0, 0.0);
+                    
+                    // --- Template Morphing Logic (uGestureState == 3) ---
+                    vec3 targetPosition = newPosition; 
+                    float shapeFactor = mod(pIndex, 3.0); // Simple way to assign a template based on particle ID
+
+                    if (uGestureState == 3.0) { 
+                        if (shapeFactor < 1.0) {
+                           targetPosition = heartShape(pIndex / float(PARTICLE_COUNT), 1.0);
+                        } else if (shapeFactor < 2.0) {
+                           targetPosition = saturnShape(pIndex / float(PARTICLE_COUNT), 1.0);
+                        } else {
+                           targetPosition = sphereShape(pIndex, 1.0);
+                        }
+                        
+                        // Slowly morph towards the target shape
+                        newPosition = mix(newPosition, targetPosition, 0.05);
+                    }
+                    
+                    // --- Behavior Switching based on Gesture ---
+                    if (uGestureState == 1.0) { // ATTRACT (Fist)
+                        vec3 attractDir = handWorldPos - newPosition;
+                        float dist = length(attractDir);
+                        
+                        // Attract more strongly the closer the hand is
+                        float attractFactor = (1.0 - smoothstep(0.0, 5.0, dist)) * 0.02;
+                        newPosition += normalize(attractDir) * attractFactor;
+
+                    } else if (uGestureState == 2.0) { // REPEL/EXPLODE (Open Palm)
+                        vec3 repelDir = newPosition - handWorldPos;
+                        float dist = length(repelDir);
+
+                        // If close to the hand, quickly push away
+                        if (dist < 2.0) {
+                            newPosition += normalize(repelDir) * 0.1;
+                        }
+                    } else { // IDLE (Slow rotation and noise)
+                        newPosition = newPosition * rotateX(sin(uTime * 0.1) * 0.005);
+                    }
+
+                    // Standard final calculations for rendering
+                    vec4 mvPosition = modelViewMatrix * vec4(newPosition, 1.0);
+                    gl_PointSize = pSize * 50.0 * (1.0 / -mvPosition.z); // Scale size based on distance and pSize
+                    gl_Position = projectionMatrix * mvPosition;
+                }
+            `;
+        }
+
+        // The Fragment Shader: Sets color and circular shape
+        function getFragmentShader() {
+            return `
+                uniform vec3 uParticleColor;
+                uniform float uGestureState;
+                
+                void main() {
+                    // Create a soft, circular point (Gaussian falloff)
+                    float dist = length(gl_PointCoord - vec2(0.5));
+                    float alpha = 1.0 - smoothstep(0.3, 0.5, dist);
+                    
+                    vec3 color = uParticleColor;
+                    
+                    // Color Feedback based on state
+                    if (uGestureState == 1.0) { // Attract -> Red/Orange
+                        color = mix(color, vec3(1.0, 0.5, 0.0), 0.8);
+                    } else if (uGestureState == 2.0) { // Repel -> White/Bright
+                        color = vec3(1.0, 1.0, 1.0);
+                    } else if (uGestureState == 3.0) { // Morph -> Green/Cyan
+                         color = mix(color, vec3(0.0, 1.0, 1.0), 0.8);
+                    }
+
+                    gl_FragColor = vec4(color, alpha * 0.7);
+                }
+            `;
+        }
+
+
+        // --- 3. Three.js Setup and Core Functions ---
+
+        function init() {
+            // 3.1 Scene, Camera, Renderer
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.z = 8;
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+            renderer.setClearColor(0x000011, 1); // Dark blue/black background
+
+            // 3.2 Create Particle System
+            particles = createParticleSystem();
+            scene.add(particles);
+
+            // 3.3 Event Listeners
+            window.addEventListener('resize', onWindowResize, false);
+            window.addEventListener('keydown', onKeyDown, false); // Simulated control
+
+            // 3.4 Start Loop
+            animate();
+        }
+
+        function createParticleSystem() {
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(PARTICLE_COUNT * 3);
+            const customAttributes = new Float32Array(PARTICLE_COUNT * 3); // pSize, pTemplate, pIndex
+
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                // Initial random position in a sphere
+                const r = 5.0; // Initial radius
+                const theta = Math.random() * 2 * Math.PI;
+                const phi = Math.acos(Math.random() * 2 - 1);
+                positions[i * 3 + 0] = r * Math.sin(phi) * Math.cos(theta);
+                positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+                positions[i * 3 + 2] = r * Math.cos(phi);
+
+                // pSize (0.5 to 1.5)
+                customAttributes[i * 3 + 0] = Math.random() * 0.5 + 0.5; 
+                // pTemplate (unused in this version, relying on pIndex for simplicity)
+                customAttributes[i * 3 + 1] = Math.floor(Math.random() * 3); 
+                // pIndex (Unique ID for shader noise/templates)
+                customAttributes[i * 3 + 2] = i; 
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('pSize', new THREE.BufferAttribute(customAttributes.slice(0, PARTICLE_COUNT), 1));
+            geometry.setAttribute('pTemplate', new THREE.BufferAttribute(customAttributes.slice(PARTICLE_COUNT, PARTICLE_COUNT * 2), 1));
+            geometry.setAttribute('pIndex', new THREE.BufferAttribute(customAttributes.slice(PARTICLE_COUNT * 2), 1));
+
+
+            // Create Shader Material
+            const material = new THREE.ShaderMaterial({
+                uniforms: {
+                    uTime: { value: 0.0 },
+                    uHandPos: { value: new THREE.Vector2(0.5, 0.5) },
+                    uGestureState: { value: 0 }, 
+                    uParticleColor: { value: new THREE.Color(0x00aaff) }, // Default Blue
+                },
+                vertexShader: getVertexShader().replace('float(PARTICLE_COUNT)', PARTICLE_COUNT.toFixed(1)), // Inject constant
+                fragmentShader: getFragmentShader(),
+                blending: THREE.AdditiveBlending,
+                depthTest: false,
+                transparent: true
+            });
+
+            return new THREE.Points(geometry, material);
+        }
+
+        function onKeyDown(event) {
+            // Simulate hand tracking input for testing
+            if (event.key === '1') {
+                handTrackingData.gestureType = 'fist';
+                handTrackingData.normalizedX = 0.2; // Attract to left
+                gestureDisplay.textContent = 'Attract (Fist) - Red/Orange';
+            } else if (event.key === '2') {
+                handTrackingData.gestureType = 'open';
+                handTrackingData.normalizedX = 0.8; // Explode near right
+                gestureDisplay.textContent = 'Explode (Open) - White';
+            } else if (event.key === '3') {
+                handTrackingData.gestureType = 'template_morph';
+                gestureDisplay.textContent = 'Morph (Template) - Green/Cyan';
+            } else if (event.key === '0') {
+                handTrackingData.gestureType = 'idle';
+                gestureDisplay.textContent = 'Idle (Blue)';
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const time = performance.now() * 0.001;
+            particles.material.uniforms.uTime.value = time;
+
+            // --- 4. DATA BRIDGE (Hand Tracking Integration Zone) ---
+            
+            // This is where your live MediaPipe/Leap Motion data would update
+            // the particles.material.uniforms in real-time.
+            
+            if (handTrackingData.gestureType === 'fist') {
+                particles.material.uniforms.uGestureState.value = 1; // Attract
+            } else if (handTrackingData.gestureType === 'open') {
+                particles.material.uniforms.uGestureState.value = 2; // Explode/Repel
+            } else if (handTrackingData.gestureType === 'template_morph') {
+                particles.material.uniforms.uGestureState.value = 3; // Template switch
+            } else {
+                particles.material.uniforms.uGestureState.value = 0; // Idle
+            }
+            
+            // Always update hand position if present
+            particles.material.uniforms.uHandPos.value.set(
+                handTrackingData.normalizedX,
+                handTrackingData.normalizedY
+            );
+            // --------------------------------------------------------
+
+            // Rotate the entire system slowly for better 3D perception
+            particles.rotation.y = time * 0.05; 
+
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Initialize the application
+        init();
+    </script>
+</body>
+</html>
